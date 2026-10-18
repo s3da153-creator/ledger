@@ -1,0 +1,78 @@
+rules_version = '2';
+// Aboseada PRO — قواعد أمان Firestore (النسخة المشدّدة)
+// الملاحظات:
+//  - المالك: admin@ledger.app (كل الصلاحيات).   - المشاهد: viewer@ledger.app (قراءة فقط).
+//  - باقي المستخدمين: مستند users/{username} فيه role و perms و disabled (ينشئه المالك فقط).
+//  - بيانات الموارد البشرية والإنتاج محمية بصلاحية الشاشة المقابلة (perms) قراءةً وكتابةً.
+//  - كود المالك في private/owner (قراءة وكتابة للمالك فقط) — مش بيظهر لأي مستخدم تاني.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn(){ return request.auth != null && request.auth.token.email != null; }
+    function me(){ return request.auth.token.email.split('@')[0]; }
+    function isAdmin(){ return signedIn() && request.auth.token.email == 'admin@ledger.app'; }
+    function isViewer(){ return signedIn() && request.auth.token.email == 'viewer@ledger.app'; }
+    function userDoc(){ return get(/databases/$(database)/documents/users/$(me())).data; }
+    function active(){ return signedIn()
+      && exists(/databases/$(database)/documents/users/$(me()))
+      && userDoc().get('disabled', false) != true; }
+    function isEditor(){ return active() && userDoc().get('role', 'viewer') == 'editor'; }
+
+    // مستوى صلاحية المستخدم على شاشة: 0 مخفي / 1 مشاهدة / 2 تعديل
+    function lvl(k){
+      let p = userDoc().get('perms', null);
+      return p == null ? (userDoc().get('role', 'viewer') == 'editor' ? 2 : 1)
+                       : (k in p ? p[k] : ('*' in p ? p['*'] : 0));
+    }
+
+    // المجموعات المحمية: اسم المجموعة -> الشاشة المقابلة في الصلاحيات
+    function guard(c){
+      return {
+        'hrEmployees':'hrEmployees', 'hrAtt':'hrAttendance', 'hrLeaves':'hrLeaves', 'hrMoney':'hrMoney', 'hrPayroll':'hrPayroll',
+        'prodLogs':'prodLog', 'prodPlans':'prodPlan', 'prodEquip':'prodEquip', 'prodMaint':'prodMaint', 'prodQC':'prodQC'
+      }.get(c, '');
+    }
+    function chunkCols(){ return ['entries','salesInvoices','purchaseInvoices','salesOrders','salesReturns','stockMoves','vouchers','notices',
+      'hrEmployees','hrAtt','hrLeaves','hrMoney','hrPayroll','prodLogs','prodPlans','prodEquip','prodMaint','prodQC',
+      'productions','stocktakes','purchaseReturns','dispatches']; }
+
+    function canRead(c){
+      return isAdmin() || isViewer() || (active() && (guard(c) == '' || lvl(guard(c)) >= 1));
+    }
+    function canWrite(c){
+      return isAdmin() || (guard(c) == '' ? isEditor() : (active() && lvl(guard(c)) >= 2));
+    }
+    function validChunk(){ return request.resource.data.keys().hasOnly(['items']) && request.resource.data.items is list; }
+
+    // بيانات البرنامج (قطع مقسّمة)
+    match /{col}/{chunk} {
+      allow read:   if col in chunkCols() && canRead(col);
+      allow create, update: if col in chunkCols() && canWrite(col) && validChunk();
+      allow delete: if col in chunkCols() && canWrite(col);
+    }
+
+    // الإعدادات العامة وقفل الحفظ
+    match /meta/{d} {
+      allow read:  if isAdmin() || isViewer() || active();
+      allow write: if isAdmin() || isEditor();
+    }
+
+    // المستخدمين: المالك فقط يكتب. المستخدم يقرأ مستنده هو بس.
+    match /users/{u} {
+      allow read:  if isAdmin() || (signedIn() && me() == u);
+      allow write: if isAdmin();
+    }
+
+    // سجل الدخول والتعديلات: أي مستخدم يضيف سطر، المالك فقط يقرأ، ومفيش تعديل أو حذف
+    match /audit/{id} {
+      allow read:   if isAdmin();
+      allow create: if signedIn() && request.resource.data.keys().hasAll(['ts','kind']);
+      allow update, delete: if false;
+    }
+
+    // كود المالك: المالك فقط
+    match /private/{d} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
