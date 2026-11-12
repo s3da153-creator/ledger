@@ -3801,13 +3801,8 @@ function buildSaleInvoiceA4(inv){
   const dmy = d => { const m = String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[3]+'/'+m[2]+'/'+m[1] : E(d); };
   const so = /^\d+$/.test(String(inv.orderNo||'').trim()) ? 'SO-'+String(inv.orderNo).trim() : String(inv.orderNo||'');
   const cust = inv.customerName||inv.sheetCustomer||'';
-  /* تكملة الجدول لـ 9 صفوف بباقي الأصناف القياسية (كمية 0) */
-  const used = new Set(items.map(i=>String(i.item).trim()));
-  let extra = [];
-  try{ extra = salesProductNames().filter(n=>!used.has(String(n).trim())); }catch(e){}
-  const rows = items.map(i=>({code:code(i.item), name:String(i.item)+(i.gift?' (هدية)':''), qty:Number(i.qty)||0, price:i.price, total:(i.total!=null?i.total:(Number(i.qty)||0)*(Number(i.price)||0))}));
-  for(const n of extra){ if(rows.length>=9) break; let pr = null; try{ pr = customerPriceFor(cust, n); }catch(e){} if(pr==null){ const p = state.products.find(x=>String(x.name).trim()===String(n).trim()); pr = p && p.price || 0; } rows.push({code:'', name:n, qty:0, price:pr, total:0}); }
-  const row = (l,v)=>`<tr><td style="padding:3px 0;width:190px;font-weight:700;white-space:nowrap">${l}:</td><td style="padding:3px 12px">${v||''}</td></tr>`;
+  const rows = items.map(i=>({code:code(i.item), name:String(i.item)+(i.gift?' (هدية)':''), qty:Number(i.qty)||0, price:i.price, total:(i.total!=null?i.total:(Number(i.qty)||0)*(Number(i.price)||0))})).filter(r=>r.qty!==0||Math.abs(Number(r.total)||0)>0.004);
+  const mc = (l,v)=>`<td style="padding:5px 4px;vertical-align:top"><b>${l}:</b> ${v||''}</td>`;
   const th = 'border:2px solid #000;padding:6px 8px;background:#fff;color:#000;font-weight:800;text-align:center;font-size:17px';
   const td = 'border:2px solid #000;padding:6px 8px;text-align:center;font-size:17px';
   const lg = k => (window.__logoSrc||(()=>''))(k);
@@ -3823,8 +3818,9 @@ function buildSaleInvoiceA4(inv){
       <div style="display:flex;direction:ltr;align-items:center;gap:16px"><img src="${lg('b')}" style="height:105px;object-fit:contain"><img src="${lg('a')}" style="height:88px;object-fit:contain"></div>
     </div>
     <div style="text-align:center;margin-top:8px"><div style="font-size:26px;font-weight:800">فاتورة</div><div style="font-size:24px;font-weight:800">${E(inv.ref)}</div></div>
-    <table style="margin:6px 0 12px;font-size:17px;border-collapse:collapse;margin-inline-start:auto;margin-inline-end:0">
-      ${row('رقم القيد', E(ent?ent.entryNo:''))}${row('تاريخ الفاتورة', dmy(inv.date))}${row('رقم أمر التوريد', E(so))}${row('اسم العميل', E(cust))}${row('الفرع', E(inv.branch))}${row('رقم أمر شراء العميل', E(inv.po))}
+    <table style="width:100%;margin:6px 0 12px;font-size:16px;border-collapse:collapse;table-layout:fixed">
+      <tr>${mc('رقم القيد', E(ent?ent.entryNo:''))}${mc('تاريخ الفاتورة', dmy(inv.date))}${mc('رقم أمر التوريد', E(so))}</tr>
+      <tr>${mc('اسم العميل', E(cust))}${mc('الفرع', E(inv.branch))}${mc('رقم أمر شراء العميل', E(inv.po))}</tr>
     </table>
     <table style="width:100%;border-collapse:collapse">
       <thead><tr><th style="${th}">كود المنتج</th><th style="${th}">وصف المنتج</th><th style="${th}">الكمية</th><th style="${th}">سعر الوحدة</th><th style="${th}">إجمالي البند</th></tr></thead>
@@ -8195,7 +8191,7 @@ function viewAccOrders(){
   const done = []; dpArr().forEach(b=> b.orders.forEach(o=>{ if(o.st==='invoiced') done.push({b,o}); }));
   main.innerHTML = `<h2 class="view-title">أوردرات للفوترة</h2>
   <p class="view-sub">الأوردرات اللي المخازن وافقت على خروجها. اختار «نعم» لإنشاء الفاتورة (بتتفتح الفاتورة متعبّاة من الأوردر) أو «لا» لرفضه ويرجع للمخازن مع السبب.</p>
-  <div class="card"><h3>🔔 بانتظار قرارك (${pend.length})</h3><div class="tbl-wrap"><table><thead><tr><th>اليوم</th><th>الأوردر</th><th>العميل</th><th>الفرع</th><th>الأصناف</th><th></th></tr></thead><tbody>
+  <div class="card"><h3>🔔 بانتظار قرارك (${pend.length})</h3>${can&&pend.length?`<div style="margin-bottom:10px"><button class="btn" id="ao-all" type="button">✅ قبول الكل (${pend.length}) — إنشاء فاتورة لكل أوردر وطباعتها كلها</button> <span style="font-size:12.5px;color:var(--ink-soft)">بسعر العميل وخصمه، وأي أوردر ناقص سعر بيتسيب لقرارك.</span></div>`:''}<div class="tbl-wrap"><table><thead><tr><th>اليوم</th><th>الأوردر</th><th>العميل</th><th>الفرع</th><th>الأصناف</th><th></th></tr></thead><tbody>
   ${pend.map(p=>{ const od = dpOrderData(p.o.no); return `<tr><td class="tabular">${dpD(p.b.date)}</td><td class="tabular">${esc(p.o.no)}</td><td>${esc(od.customer)}</td><td>${esc(od.branch||'')}</td><td style="font-size:12.5px">${dpItemsTxt(od)}</td>
     <td style="white-space:nowrap"><button class="btn secondary small" data-tr="${p.o.no}" type="button">🔎 تتبع</button>${can?`<span style="margin-inline-start:8px;font-size:12.5px">إنشاء فاتورة؟</span> <button class="btn small" data-yes="${p.b.id}|${p.i}" type="button">✅ نعم</button><button class="btn danger small" data-no="${p.b.id}|${p.i}" type="button">❌ لا</button>`:''}</td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">لا توجد أوردرات بانتظار قرارك ✓</td></tr>'}
   </tbody></table></div></div>
@@ -8204,6 +8200,22 @@ function viewAccOrders(){
   </tbody></table></div></div>`;
   main.querySelectorAll('[data-tr]').forEach(x=>x.onclick = ()=>dpTrackModal(x.dataset.tr));
   const pick = s=>{ const [id,i] = s.split('|'); const b = dpArr().find(x=>x.id===id); return {b, o:b.orders[+i]}; };
+  const aoAll = $('ao-all'); if(aoAll) aoAll.onclick = ()=>{
+    if(viewLevel('salesInvoice')<2){ toast('ليس لديك صلاحية إنشاء فاتورة مبيعات — اطلبها من المالك', true); return; }
+    if(!confirm('هيتم إنشاء '+pend.length+' فاتورة مبيعات (فاتورة لكل أوردر) وترحيلها للحسابات وطباعتها كلها. متأكد؟')) return;
+    const made = [], bad = [];
+    pend.forEach(({b,o})=>{
+      const od = orderByNumber(o.no); if(!od){ bad.push(o.no+' (غير موجود)'); return; }
+      const bp = bulkPrepare(od); if(bp.missing){ bad.push(o.no+' (سعر ناقص)'); return; }
+      const r = createSaleInvoice({date:todayISO(), orderNo:od.orderNo, branch:od.branch, po:od.po, customer:od.customer, discountPercent:bp.disc, lines:bp.items, offerLog:bp.offerLog});
+      if(r.error){ bad.push(o.no+' ('+r.error+')'); return; }
+      made.push(r.inv); dpLog(o,'الحسابات: قبول جماعي — فاتورة '+(r.inv.ref||''),'', 'acc');
+    });
+    if(made.length){ save(); try{ dpSyncInvoices(); save(); }catch(e){} }
+    viewAccOrders();
+    toast('تم إنشاء '+made.length+' فاتورة'+(bad.length?' — تعذر '+bad.length+': '+bad.slice(0,10).join('، '):''), !made.length);
+    if(made.length) printInvoicesIsolated(made.map(i=>buildInvoicePrintHTML('sale', i)));
+  };
   main.querySelectorAll('[data-yes]').forEach(x=>x.onclick = ()=>{
     const {b,o} = pick(x.dataset.yes); const od = orderByNumber(o.no);
     if(viewLevel('salesInvoice')<2){ toast('ليس لديك صلاحية إنشاء فاتورة مبيعات — اطلبها من المالك', true); return; }
@@ -11001,7 +11013,7 @@ VIEWS.routeReport = viewRouteReport;
 { const sv = MODULES.sales.views; if(!sv.some(x=>x[0]==='routePlan')){ const at = sv.findIndex(x=>x[0]==='customers'); sv.splice(at<0?sv.length:at+1, 0, ['routePlan','خط سير المناديب'], ['routeReport','تقرير خط السير']); } }
 
 /* ===== فوترة أوردرات بالجملة ===== */
-const BK = {q:'', date:'', sel:new Set(), msg:''};
+const BK = {q:'', date:'', dl:'', sel:new Set(), msg:''};
 function bulkPrepare(o){
   const items = o.items.map(it=>({item:it.item, qty:it.qty, price:(it.price!=null && it.price!=='' ? Number(it.price) : customerPriceFor(o.customer, it.item))}));
   const missing = items.some(i=> i.price==null || !(Number(i.price)>=0));
@@ -11031,19 +11043,28 @@ function createSaleInvoice(d){
 function viewSalesBulk(){
   const ro = READONLY; if(!BK.date) BK.date = todayISO();
   const q = BK.q.trim().toLowerCase();
-  const open = state.salesOrders.filter(o=> !invoiceForOrder(o.orderNo)).filter(o=> !q || [o.orderNo,o.customer,o.branch,o.po].join(' ').toLowerCase().includes(q));
+  const open = state.salesOrders.filter(o=> !invoiceForOrder(o.orderNo)).filter(o=> !BK.dl || o.deliveryDate===BK.dl).filter(o=> !q || [o.orderNo,o.customer,o.branch,o.po].join(' ').toLowerCase().includes(q));
   const shown = open.slice(0,400); BK.sel.forEach(k=>{ if(!state.salesOrders.some(o=>o.orderNo===k)) BK.sel.delete(k); });
   const selTot = [...BK.sel].map(k=>state.salesOrders.find(o=>o.orderNo===k)).filter(Boolean).reduce((t,o)=>t+bulkPrepare(o).net,0);
   main.innerHTML = `<h2 class="view-title">فوترة أوردرات بالجملة</h2><p class="view-sub">حدد أي عدد من الأوردرات غير المفوترة واضغط «إنشاء الفواتير» — بيتعمل لكل أوردر فاتورة بسعر العميل وخصمه، وبتتطبع كلها مع بعض.</p>
   <div class="card"><div class="grid3"><div class="field"><label>بحث (أوردر / عميل / فرع / PO)</label><input type="text" id="bk-q" value="${escA(BK.q)}"></div><div class="field"><label>تاريخ الفواتير</label><input type="date" id="bk-d" value="${escA(BK.date)}"></div>
+  <div class="field"><label>تاريخ تسليم الأوردر (للتصفية)</label><div style="display:flex;gap:6px"><input type="date" id="bk-dl" value="${escA(BK.dl)}"><button class="btn secondary small" id="bk-today" type="button">اليوم</button></div></div>
   <div class="field"><label>&nbsp;</label><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn secondary small" id="bk-all" type="button">تحديد كل المعروض (${shown.length})</button><button class="btn secondary small" id="bk-none" type="button">إلغاء التحديد</button></div></div></div>
   <div class="sum-bar"><span>أوردرات غير مفوترة: <b>${open.length}</b></span><span>المحدد: <b>${BK.sel.size}</b></span><span>صافي المحدد: <b class="tabular">${fmt(r2(selTot))}</b></span></div>
-  ${ro?'':`<button class="btn" id="bk-go" type="button" ${BK.sel.size?'':'disabled'}>🧾 إنشاء ${BK.sel.size||''} فاتورة وطباعتها</button>`}<div id="bk-m">${BK.msg}</div></div>
+  ${ro?'':`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="bk-acc" type="button" ${shown.length?'':'disabled'}>✅ قبول كل المعروض (${shown.length}) وفوترته وطباعته</button><button class="btn secondary" id="bk-go" type="button" ${BK.sel.size?'':'disabled'}>🧾 إنشاء ${BK.sel.size||''} فاتورة محددة وطباعتها</button><button class="btn secondary" id="bk-pall" type="button">🖨️ طباعة كل فواتير الأوردرات المعروضة (المفوترة)</button></div>`}<div id="bk-m">${BK.msg}</div></div>
   <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>الأوردر</th><th>العميل</th><th>الفرع</th><th>PO</th><th>الأصناف</th><th>قبل الخصم</th><th>الخصم %</th><th>الصافي</th></tr></thead><tbody>${shown.map(o=>{ const b = bulkPrepare(o); return `<tr><td><input type="checkbox" data-bk="${escA(o.orderNo)}" ${BK.sel.has(o.orderNo)?'checked':''}></td><td>${esc(o.orderNo)}</td><td>${esc(o.customer)}</td><td>${esc(o.branch||'')}</td><td>${esc(o.po||'')}</td><td>${o.items.map(i=>esc(i.item)+' × '+i.qty).join('، ')}</td><td class="tabular">${b.missing?'<span style="color:#B91C1C">سعر ناقص</span>':fmt(b.gross)}</td><td class="tabular">${b.disc}</td><td class="tabular">${b.missing?'—':fmt(b.net)}</td></tr>`; }).join('') || '<tr><td colspan="9" class="empty">لا توجد أوردرات غير مفوترة</td></tr>'}</tbody></table></div>${open.length>400?'<small>معروض أول 400 — استخدم البحث لتضييق النتائج</small>':''}</div>`;
   const re = ()=>viewSalesBulk();
   $('bk-q').addEventListener('change', e=>{ BK.q = e.target.value; re(); });
   $('bk-d').addEventListener('change', e=>{ BK.date = e.target.value; });
   $('bk-all').onclick = ()=>{ shown.forEach(o=>BK.sel.add(o.orderNo)); re(); };
+  $('bk-dl').addEventListener('change', e=>{ BK.dl = e.target.value; BK.sel.clear(); re(); });
+  $('bk-today').onclick = ()=>{ BK.dl = todayISO(); BK.sel.clear(); re(); };
+  const pall = $('bk-pall'); if(pall) pall.onclick = ()=>{
+    const invs = state.salesInvoices.filter(i=>{ const o = state.salesOrders.find(x=>x.orderNo===i.orderNo); return o && (!BK.dl || o.deliveryDate===BK.dl) && (!q || [o.orderNo,o.customer,o.branch,o.po].join(' ').toLowerCase().includes(q)); });
+    if(!invs.length){ BK.msg = '<div class="msg err" style="margin-top:8px">مفيش فواتير للأوردرات دي</div>'; return viewSalesBulk(); }
+    printInvoicesIsolated(invs.map(i=>buildInvoicePrintHTML('sale', i)));
+  };
+  const acc = $('bk-acc'); if(acc) acc.onclick = ()=>{ shown.forEach(o=>BK.sel.add(o.orderNo)); const g = $('bk-go'); if(g){ g.disabled = false; g.onclick(); } };
   $('bk-none').onclick = ()=>{ BK.sel.clear(); re(); };
   main.querySelectorAll('[data-bk]').forEach(c=> c.addEventListener('change', ()=>{ if(c.checked) BK.sel.add(c.dataset.bk); else BK.sel.delete(c.dataset.bk); re(); }));
   const go = $('bk-go');
